@@ -1,0 +1,20 @@
+{
+  "dataset": "clevr",
+  "prompt_file_address": "prompts/clevr-declarative.txt",
+  "results_save_file": "results_clevr.json",
+  "program_cache_address": "programs/clevr.json",
+  "vlm_model_name": "intern25_8b",
+  "code_gen_model_name": "deepseek/deepseek-v3.2",
+  "num_samples": 2000,
+  "od_model": "dino",
+  "od_box_threshold": 0.25,
+  "enable_vlm_direct_prediction": false,
+  "save_periodically": true,
+  "update_cache": true,
+  "save_interval": 50,
+  "num_splits": 1,
+  "split_index": 0,
+  "enable_fast_cache": false,
+  "use_vlm_batch": false,
+  "code_gen_provider": "openrouter"
+}

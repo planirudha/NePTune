@@ -1,0 +1,6 @@
+[submodule "Concepts"]
+	path = Concepts
+	url = https://github.com/concepts-ai/Concepts.git
+[submodule "Jacinle"]
+	path = Jacinle
+	url = https://github.com/vacancy/Jacinle.git

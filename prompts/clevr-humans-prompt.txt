@@ -1,0 +1,790 @@
+Instructions for Writing Programs Based on Scene Descriptions
+
+You will be asked to write Python programs to answer questions about a visual scene. 
+Use only the specified functions and adhere to the following guidelines.
+
+--- Available Functions and Usage Guidelines ---
+
+1. **Score Generation with `score`:**
+   - **Purpose:** Determine if objects have certain properties or relationships.
+   - **Returns:** Scores [0-1] for all objects in the scene for the question asked.
+   - **Syntax:**
+     result = score(question, num_objects)
+   - **Parameters:**
+     - **question (str):** The question to pose to the model.
+     - **num_objects (int):** The number of objects involved (1 or 2).
+       - **1:** A question about the main object. If you use bounding box ask a question about the object in the **red bounding box**. Returns a 1D vector.
+       - **2:** A question involving objects inside of the red and green bounding boxes. The red box is the reference object coming first. Returns a 2D vector where `row[i][j]` represents if object `i` (red bbox) has the relation with `j` (green bbox). The diagonal (where `i=j`) is always 0 to ensure mutual exclusivity of the variables (an object cannot have a relation with itself). 
+   - When asking for properties, You must mention the class of object. "Is the animal inside of the red bounding box brown?"
+   - When asking for relationships,you must mention the class of object.
+    - Use relationships for comparing object atrributes such as colo, size, shape etc. 
+    - "Is the animal inside of the red bounding box bigger the animal inside of the green bounding box?"
+   - When asking for an object given the image "context", just mention the "main object". "Is the main object inside of the red bounding box in the middle of the scene?"
+  Concept tightness rule
+  1. When you define a concept with `score`, the question string must describe the full concept you need for reasoning, not a weaker or more general property.
+  2. If the question asks about “the smallest cylinder”, you must not define a predicate for “the smallest object” and later intersect it with “cylinder”.
+  3. Instead, either:
+    a) Ask directly for the full concept:
+        `is_smallest_dog = score("Is the main object in the red bounding box the smallest dog in the scene?", num_objects=1)`
+        `smallest_dog = is_smallest_dog("x1").iota("x1")`
+        or
+    b) Define all needed properties declaratively and keep each predicate as tight as possible:
+        `is_dog = score("Is the main object in the red bounding box a dog?", num_objects=1)`
+        `is_smallest_among_dogs = score("Is the main object in the red bounding box the smallest dog in the scene?", num_objects=1)`
+        `smallest_cylinder = (is_dog("x1") & is_smallest_among_dogs("x1")).iota("x1")`
+
+2. **Spatial Relation Concepts**:
+   - Use predefined `left_of`, `right_of`, `above`, `below`, `distance` and `closeness` for spatial relations.
+   - These functions return a 2D vector with an identity mask. The red bounding box is the reference object and the green bounding box is the target object.
+   - **Example:**
+     ```python
+     left_of("x1", "x2") # Returns a 2D vector of {0,1}
+     right_of("x1", "x2") # Returns a 2D vector of {0,1}
+     above("x1", "x2") # Returns a 2D vector of {0,1}
+     below("x1", "x2") # Returns a 2D vector of {0,1}
+     behind("x1", "x2") # Returns a 2D vector of {0,1}
+     front("x1", "x2") # Returns a 2D vector of {0,1}
+     
+     distance("x1", "x2") # Returns a 2D vector of normalized scores of distance of x1 from x2 the more an object is far the more the score is close to 1
+     closeness("x1", "x2") # Returns a 2D vector of normalized scores of inverse of distance of x1 from x2 the more an object is close the more the score is close to 1
+     between("x1", "x2", "x3") # Returns a 3D vector of {0,1} # X1 between x2 and x3
+     
+     ## Use the below if you are looking for right most or left most
+     left_of_normalized("x1", "x2") # Returns a 2D vector of normalized scores of x distance of x1 from x2 the more an object is to the left the more the score is close to 1. Objects to the Further to the left get higher score.
+     right_of_normalized("x1", "x2") # Returns a 2D vector of normalized scores of x distance of x1 from x2 the more an object is to the right the more the score is close to 1. Objects to the Further to the right get higher score.
+     above_normalized("x1", "x2") # Returns a 2D vector of normalized scores of y distance of x1 from x2 the more an object is above the more the score is close to 1. Objects to the Further above get higher score.
+     below_normalized("x1", "x2") # Returns a 2D vector of normalized scores of y distance of x1 from x2 the more an object is below the more the score is close to 1.  Objects to the Further below get higher score.
+     behind_normalized("x1", "x2") # Returns a 2D vector of normalized scores of z distance of x1 from x2 the more an object is behind the more the score is close to 1.  Objects to the Further behind get higher score.
+     front_normalized("x1", "x2") # Returns a 2D vector of normalized scores of z distance of x1 from x2 the more an object is in front the more the score is close to 1.  Objects to the Further in front get higher score.
+
+     ``` 
+   - Use the combinations of these for new spatial relations.
+
+3. **Querying with `query`:**
+   - **Purpose:** Retrieve specific textual information about an object.
+   - **Returns:** A string answer for the question mentioned in the query (It may include reference to the red bounding box). 
+   - **Syntax:**
+     answer = query(question:str, object_id:Optional[int])
+   - **Parameters:**
+     - **question (str):** The question to ask.
+     - **object_id (int):** The identifier of the main object, typically obtained from `argmax()`. If not passed asks about the holw image
+   - Warning: Since the output is undeterministic don"t use string equality
+   
+4. **Declarative Composition Operations:**
+   - Use `&` or `and_op` for logical AND, `|` or `or_op` for logical OR, and `~` for logical NOT. 
+   - Do not use Python"s `and` or `or` for probabilistic/score-based functions.
+   - In composition you can assign **string** variables to predicates. The default variable names follow the pattern `["x1", "x2", ..., "xk"]` where `k` is the number of dimensions (e.g., `x1` for 1D, `x1, x2` for 2D).
+   - **Composition Rules:**
+     - 1D concept composed with a 1D concept returns a 1D vector of the composed concept.
+     - 2D concept composed with a 1D concept returns a 2D vector of the composed concept.
+     - For composing more than two predicates use the `or_op` or `and_op` function
+   - **Examples:**
+     <code>
+     is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+     same_shape = score("Is the main object in the red bounding box the same shape as the main object in the green bounding box?", num_objects=2)
+     is_black = score("Is the main in the object red bounding box black color?", num_objects=1)
+
+     # Apply iota to normalize the concept before using it in relations
+     is_black_cat = (is_cat("x1") & is_black("x1")).iota("x1")
+     same_shape_as_black_cat = same_shape("x2","x1") & is_black_cat("x1")
+     </code>
+   - **Important:** 
+     - Do not use `argmax` and indexing for composing relationships with properties.
+     - If you already used a concept in a `query` function, do not compose it again with the results of that same query. 
+       (e.g., avoid: `apple_behind_large_pineapple & is_large_pineapple` → separate them properly).
+
+   - **Another example:**
+     <code>
+     # "blue circle same size as a red circle"
+     # Apply iota to normalize the concepts
+     blue_circle = (is_blue("x1") & is_circle("x1")).iota("x1")
+     red_circle = (is_red("x1") & is_circle("x1")).iota("x1")
+     
+     same_size_as_red_circle = same_size("x1","x2") & red_circle("x2")
+     blue_circle_same_size_as_red_circle =  same_size_as_red_circle("x1","x2") & blue_circle("x1")
+    </code>
+
+5. **Imperative reasoning*
+  Python code enables us to reason over concept scores with Python operations such as loops and conditionals.
+
+  There is a strict priority:
+
+  1. Concept scoring with `score`, `left_of`, `right_of`, etc.
+  2. Declarative reasoning with `&`, `|`, `~`, `.exists`, `.forall`, `.count`,`.implies` or `.iota`.
+  3. Imperative reasoning with Python loops and conditionals.
+
+  You must prefer declarative reasoning whenever it can express the solution.
+
+  Use imperative reasoning **only** when the question requires:
+
+  1. Collecting or manipulating sets of free form text returned by `query` (for example, building a `set` of colors).
+  2. Returning a data structure that cannot be expressed declaratively.
+
+  You must not use Python loops to:
+
+  1. Implement selection over objects when you can use `.iota`, `.exists`, `.forall`, `.count`, `implies` or `argmax`.
+  2. Compose properties and relations that can be written with declarative operators.
+            
+6. **Existence and Counting:**
+
+  **6.1 Existence (`.exists()`):**
+  The `.exists()` operator checks for the existence of objects satisfying a condition. It reduces the dimensionality of the predicate.
+  
+  - **Scalar Existence (No arguments):**
+    - `P.exists()` checks if the condition `P` holds for *any* combination of its variables.
+    - **Returns:** A scalar score (0-1) representing the truth value (Boolean-like).
+    - **Usage:** Use this for Yes/No questions about the entire scene.
+    - **Example:** `(is_red("x1") & is_blue("x2") & left_of("x1", "x2")).exists()` -> Returns scalar (True if any red object is left of any blue object).
+
+  - **Projected Existence (With arguments):**
+    - `P.exists("var")` eliminates `"var"` from the predicate by checking if *at least one* value of `"var"` satisfies the condition for the remaining variables. It projects the predicate onto the remaining variables.
+    - **Returns:** A tensor with `"var"` removed.
+    - **Usage:** Use this to filter objects based on their relationships with others.
+    - **Example:** `(is_red("x1") & is_blue("x2") & left_of("x1", "x2")).exists("x2")` -> Returns a 1D tensor over `x1`. It represents "x1 is red AND there exists some blue x2 to the right of x1".
+
+  **6.2 Counting (`.count()`):**
+  Counting sums up the scores of objects satisfying a predicate.
+  
+  - **Scalar Counting (No arguments):**
+    - `P.count()` sums the scores over *all* variables.
+    - **Returns:** A single number (scalar).
+    - **Usage:** Use this to count the total number of tuples satisfying `P`.
+    - **Example:** `is_red.count()` -> Total number of red objects.
+
+  - **Grouped Counting (With arguments):**
+    - `P.count("var")` sums over all variables *except* `"var"`. It preserves `"var"`.
+    - **Returns:** A tensor indexed by `"var"`.
+    - **Usage:** Use this to count how many *other* objects relate to each instance of `"var"`.
+    - **Example:** `left_of("x1", "x2").count("x1")` -> For each `x1`, count how many `x2` are to its right.
+
+  - **Comparing counts:**
+    - You can compare counts using `>`, `<`, `==`. For example:
+      `more_red = is_red.count() > is_blue.count()`.
+
+  - **Interaction with `iota`:**
+    - Do not call `.count()` on a predicate after applying `iota` if you want the actual number of objects. `iota` normalizes scores into a distribution and removes cardinality information.
+
+  - **Using `exists` and `count` together:**
+
+    The correct pattern is:
+    1) Use `exists("var_to_remove")` to eliminate the inner variable and create a unary predicate over the outer variable.  
+    2) Then call `count()` on that unary predicate.
+
+    Example 1: count how many objects are right of a red circle.
+    ```
+    is_red = score("Is the main object in the red bounding box red?", num_objects=1)
+    is_circle = score("Is the main object in the red bounding box a circle?", num_objects=1)
+    red_circle = (is_red("x2") & is_circle("x2")).iota("x2")
+
+    # unary predicate over x1: "x1 is right of some red circle x2"
+    right_of_red_circle = (right_of("x1", "x2") & red_circle("x2")).exists("x2")
+
+    # final scalar count
+    return right_of_red_circle.count()
+    ```
+    Example 2: count how many red objects have some bigger blue object to their right.
+    ```
+    is_red = score("Is the main object in the red bounding box red?", num_objects=1)
+    is_blue = score("Is the main object in the red bounding box blue?", num_objects=1)
+    bigger = score("Is the main object in the red bounding box bigger than the object in the green bounding box?", num_objects=2)
+
+    # Normalize the blue object concept
+    blue_obj = is_blue("x2").iota("x2")
+
+    # unary predicate over x1: "x1 is red and there exists x2 that is blue, bigger, and right of x1"
+    has_bigger_blue_right = (
+        is_red("x1") &
+        (blue_obj("x2") & bigger("x2", "x1") & right_of("x2", "x1"))
+    )
+
+    # number of such red objects
+    return has_bigger_blue_right.exists("x2").count()
+    ```
+7. **Selection with `iota` (Soft Selection for Definite References):**
+  Use `iota` to model definite references like "the cylinder", "the red cube", "that sphere", or "the leftmost cube".
+
+  **7.1 Semantics:**
+  - `iota` performs soft selection by normalizing scores.
+  - **Unary Predicate `p("x1")`:** `p.iota("x1")` normalizes scores across objects, behaving like a soft "there exists such an x1" while remaining a predicate over `x1`.
+  - **Binary Relation `r("x1", "x2")`:** `r.iota("x1")` softly aggregates over `x2` and normalizes over `x1`.
+
+  **7.2 When to use `iota`:**
+  - **Definite References:** Use `iota` for "the X", "that X", "the leftmost X".
+  - **Indefinite References:** Do NOT use `iota` for "a cube", "any sphere", "some object". Use plain predicates with `exists` or `forall`.
+  - **Counting:** Do NOT apply `iota` to concepts you are going to count.
+
+  **7.3 How to use `iota` in code:**
+  - **Rule:** Always call `iota` with a variable name and assign it to a *new* variable. Do not overwrite the original predicate.
+  
+  *Correct Pattern:*
+  ```python
+  is_cylinder = score("Is the main object in the red bounding box a cylinder?", num_objects=1)
+  # Create a new variable for the selection
+  the_cylinder = is_cylinder("x1").iota("x1") 
+  
+  is_sphere = score("Is the main object in the red bounding box a sphere?", num_objects=1)
+  the_spheres = is_sphere("x2").iota("x2")
+
+  same_color = score("Is the main object in the red bounding box the same color as the main object in the green bounding box?", num_objects=2)
+
+  # Use the selections in the relation
+  cylinder_same_color_as_sphere = (
+      the_cylinder("x1") & the_spheres("x2") & same_color("x1", "x2")
+  )
+  
+  if cylinder_same_color_as_sphere.exists():
+      return "Yes"
+  else:
+      return "No"
+  ```
+
+
+8. **Universal Quantification and Implication:**
+   - **Universal Quantification (`forall`):**
+     - **Purpose:** Check if a condition holds for *all* objects.
+     - **Syntax:** `result = predicate.forall("x1")`
+     - **Returns:** 
+       - On a 1D predicate: A scalar score/boolean.
+       - On a 2D relation (e.g., `R(x1, x2)`): A 1D tensor over the remaining variable.
+     - **Important Note on Relations:** When applied to a square matrix (relation on the same set of objects), `forall` **ignores the diagonal** (self-relations). It checks if the condition holds for all *other* objects.
+   
+   - **Implication (`implies`):**
+     - **Purpose:** Express logical implication (P ⇒ Q). Equivalent to `~P | Q`.
+     - **Syntax:** `result = antecedent.implies(consequent)`
+     - **Usage:** Often used with `forall` to check "Every X is Y".
+     
+   - **Example:** "Every red object is a circle"
+     ```python
+     is_red = score("...red?", num_objects=1)
+     is_circle = score("...circle?", num_objects=1)
+     
+     # Check: For all x1, (is_red(x1) implies is_circle(x1))
+     all_red_are_circles = is_red("x1").implies(is_circle("x1")).forall("x1")
+     ```
+9. **Comparisons:**
+   - Use `>`, `<`, `==` to compare counts or other numerical values.
+   - **Example:**
+     more_apples = apple_count > orange_count
+10. **Indexing with `argmax` and `topk`:**
+   - **Purpose:** Find the indices of objects with high scores.
+   - **argmax:**
+     - **Syntax:** `index = result.argmax()`
+     - **Returns:** A single Python `int` representing the index of the highest scoring object.
+     - **Get the n-th highest index:** `index = result.argmax(k=n)` (Returns `int`)
+   - **topk:**
+     - **Syntax:** `indices = result.topk(k=n)`
+     - **Returns:** A list of integers containing the top `n` indices.
+   - **Restriction:** 
+     - Never use `argmax` results for further composition with slicing and indexing. 
+       *Incorrect:* `same_row_as_blue_circle = same_row[blue_circle.argmax(), :]`
+       *Correct:* `same_row_as_blue_circle = same_row("x1","x2") & blue_circle("x2")`
+11. **Variables:**
+   - `objects_count` holds the total number of objects in the scene.
+12. **Constraints:**
+    - Do not rely on bounding box order; it is random.
+    - Avoid using `for` loops except where needed for querying multiple objects.
+    - Break down problems into the simplest possible steps.
+    - Do not query multiple objects simultaneously without looping.
+    - Do not use more arguments than shown in the examples.
+    - When using `score`, make your questions as specific as possible.
+    - If you combine more than two concepts use `and_op` or `or_op` with proper variables.
+    - Don"t use equal sign and for the results of `query` since the output of `query` coming from an LLM can be undeterministic. 
+    - If the question implies a specific number of objects (e.g., "the two cubes"), assume that number exists. Do not write code to validate the count or return error messages if the count differs. 
+13. **Avoid Comparing Query Results Directly:**
+    - Use `score` for concept comparisons rather than comparing string or numeric outputs from `query`.
+    - **Example (checking if any two objects share the same color):**
+      <code>
+      # Check if main objects in red & green bounding boxes share the same color
+      same_color = score("Is the main object in the red bounding box the same color as the main object in the green bounding box?", num_objects=2)
+      # Check if there is at least one pair of objects with the same color
+      return same_color.exists()
+      </code>
+    - **Do NOT do**:
+      colors = [query("What is the color of the main object in the red bounding box?", object_id=i) for i in range(objects_count)]
+      # then compare colors[i] to colors[j] in a loop
+      or if query("What is the color of the main object in the red bounding box?") == "red". Use the `score` function for these comparison
+--- Complex Examples ---
+Below are some example questions and their corresponding code snippets:
+
+<text>What is the color of the image?</text>
+<type_of_reasoning>
+None
+</type_of_reasoning>
+<steps>query color of the image</steps>
+```python
+return query("What is the color of the image?")
+```
+
+<text>Which cat is just right of the cake?</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify definite cats (target) → is_cat(x1) → iota(x2)
+2.  Score: Identify cakes (reference) → is_cake(x2)
+3.  Select (Iota): Normalize reference object score (cake) → iota(x2)
+4.  Use Predefined: Check if x1 is right of x2 → right_of(x1, x2)
+5.  Compose: Combine target, relation, and normalized reference → cat(x1) & right_of(x1, x2) & cake_score(x2)
+6.  Select (Iota): Normalize target object score to 1D → iota(x1)
+7.  Argmax: Find the index of the highest scoring cat → argmax()
+8.  Query: Describe the identified cat → query(object_id)
+<code>
+is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_cat = is_cat("x1").iota("x1")
+is_cake = is_cake("x2").iota("x2")
+
+# Compose and normalize target
+
+cat_just_right_of_cake = (is_cat("x1") & right_of("x1", "x2") & cake_score("x2"))
+cat_just_right_of_cake = cat_just_right_of_cake.iota("x1")
+
+object_id = cat_just_right_of_cake.argmax()
+return query("Describe the cat in the red bounding box", object_id=object_id)
+```
+
+<text>How many apples does the cat have in its paws?</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify apples (target) → is_apple(x1)
+2.  Score: Identify cats (reference) → is_cat(x2) → iota(x2)
+3.  Score: Identify relationship → in_the_paws(x1, x2)
+4.  Select (Iota): Normalize reference object score (cat) → iota(x2)
+5.  Compose: Combine apple, relation, and normalized cat score → apple(x1) & in_the_paws(x1, x2) & cat_score(x2)
+6.  Count: Count apples satisfying the predicate → count()
+</steps>
+```python
+# 1. Define target property (x1)
+is_apple = score("Is the main object in the red bounding box an apple?", num_objects=1)
+
+# 2. Define reference property (x2)
+is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+
+# 3. Define the relationship
+in_the_paws = score("Is the main object in the red bounding box in the paws of the main object in the green bounding box?", num_objects=2)
+
+# 4. Normalize the reference object "x2"
+cat_score = is_cat("x2").iota("x2") # Select (Iota) for Reference
+# 5. Compose the full predicate
+
+apple_in_cats_paws = and_op(is_apple("x1"), in_the_paws("x1", "x2"), cat_score("x2")).exists("x2")
+
+# 6. Count the number of apples (x1) that satisfy the predicate
+
+return apple_in_cats_paws.count()
+```
+
+
+<text>Are there more apples over cakes at the end of the room?</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify apples → is_apple(x1)
+2.  Score: Identify cakes → is_cake(x2)
+3.  Score: Identify objects at end of room → at_end_of_room(x)
+4.  Compose: specific apples → apple(x1) & at_end(x1)
+5.  Compose: specific cakes → cake(x2) & at_end(x2)
+6.  Count: Count apples at the end → count()
+7.  Count: Count cakes at the end → count()
+8.  Compare: Check if apple count > cake count
+</steps>
+```python
+is_apple = score("Is the main object in the red bounding box an apple?", num_objects=1)
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_at_the_end_of_room = score("Is the main object in the red bounding box at the end of the room?", num_objects=1)
+
+count_apples = (is_apple("x1") & is_at_the_end_of_room("x1")).count()
+count_cakes = (is_cake("x2") & is_at_the_end_of_room("x2")).count()
+if count_apples > count_cakes:
+  return "Yes"
+else:
+  return "No"
+
+```
+
+<text> Is the color of the frutherest cat black or white? <text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps> 
+1.  Score: Identify definite cats → is_cat(x) → iota(x)
+2.  Score: Identify "furthest cat" (Tight Concept) → is_furthest_cat(x)
+3.  Score: Identify black objects → is_black(x)
+4.  Score: Identify white objects → is_white(x)
+5.  Compose: Black furthest cat → furthest_cat(x1) & black(x1)
+6.  Compose: White furthest cat → furthest_cat(x2) & white(x2)
+7.  Compare: Check existence of black vs white → exists(black) > exists(white)
+</steps>
+```python
+is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+is_furthest_cat = score("Is the main object in the red bounding box the furtherest cat in the scene?", num_objects=1)
+is_black = score("Is the main object in the red bounding box black?", num_objects=1)
+is_white = score("Is the main object in the red bounding box white?", num_objects=1)
+
+furthest_cat_score("x1") = (is_cat("x1").iota("x1") & is_furthest_cat("x1")).iota("x1") 
+
+furtherest_cat_black = furthest_cat_score("x1") & is_black("x1")
+furtherest_cat_white = furthest_cat_score("x2") & is_white("x2")
+
+
+if furtherest_cat_black.exists("x1") > furtherest_cat_white.exists("x2"):
+    return "black"
+else:
+    return "white"
+```
+
+
+
+<text>What is the main object next to the cake that is front and center of the room?</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify cakes (reference iota) → is_cake(x2) → iota(x2)
+2.  Score: Identify center objects → is_center(x2)
+3.  Score: Identify front objects → is_front(x2)
+4.  Compose: Combine reference properties → cake(x2) & center(x2) & front(x2)
+5.  Select (Iota): Normalize composite reference score (cake) → iota(x2)
+6.  Use Predefined: Check closeness (next to) → closeness(x1, x2)
+7.  Compose: Combine relation and normalized reference → closeness(x1, x2) & cake_score(x2)
+8.  Select (Iota): Normalize target object score (x1) → iota(x1)
+9.  Argmax: Find index of highest scoring object → argmax()
+10. Query: Describe the object → query(object_id)
+</steps>
+```python
+# 1. Define properties for the reference object (x2)
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_center_of_room = score("Is the main object in the red bounding box in the center of the room?", num_objects=1)
+is_in_front = score("Is the main object in the red bounding box in front of the scene?", num_objects=1)
+# 2. Compose and normalize the reference object "x2"
+# This creates a 1D score for "cake that is front and center"
+
+cake_score = (is_cake("x2").iota("x2") & is_center_of_room("x2") & is_in_front("x2")).iota("x2")  # Select (Iota) for Reference
+# 3. Use the predefined "closeness" relation for "next to"
+is_next_to = closeness
+# 4. Create the full predicate: (target x1) is next to (reference x2)
+target_predicate = is_next_to("x1", "x2") & cake_score("x2")
+# 5. Use iota to get the final 1D selection score for "x1"
+# This aggregates over "x2" and finds the "x1" that is "most next to" the best cake.
+selection_score = target_predicate.iota("x1")  # Select (Iota) for Reference
+# 6. Find the object with the highest score
+object_id = selection_score.argmax()
+# 7. Query for the description of that object
+return query("Describe the object in the red bounding box uniquely?", object_id=object_id)
+```
+
+
+<text> What is the color of the biggest circle left of the green square? </text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify definite green objects (reference) → is_green(x2) → iota(x2)
+2.  Score: Identify definite square objects (reference) → is_square(x2) → iota(x2)
+3.  Compose: Combine reference properties → green(x2) & square(x2)
+4.  Select (Iota): Normalize reference object score (green square) → iota(x2)
+5.  Score: Identify "biggest circle" (Tight Concept) → is_biggest_circle(x1)
+6.  Use Predefined: Check if x1 is left of x2 → left_of(x1, x2)
+7.  Compose: Combine target, relation, and normalized reference → biggest_circle(x1) & left_of(x1, x2) & green_square(x2)
+8.  Select (Iota): Normalize target object score to 1D → iota(x1)
+9.  Argmax: Find index of target object → argmax()
+10. Query: Ask for color → query(object_id)
+</steps>
+```python
+
+# 1. Define properties for the reference object (x2)
+
+is_green = score("Is the main object in the red bounding box green?", num_objects=1)
+is_square = score("Is the main object in the red bounding box a square?", num_objects=1)
+
+# 2. Define properties for the target object (x1)
+circle = score("Is the main object in the red bounding box a circle?", num_objects=1)
+is_biggest_circle = score("Is the main object in the red bounding box the biggest circle in the scene?", num_objects=1)
+biggest_circle = is_biggest_circle("x1") & circle("x1")
+# 3. Compose the reference object "x2"
+
+green_square = (is_green("x2") & is_square("x2")).iota("x2")
+
+# 4. Create the full predicate
+
+target_predicate = biggest_circle("x1").iota("x1") & left_of("x1", "x2") & green_square("x2")
+
+# 5. Find the object with the highest score (normalize with iota first)
+
+object_id = target_predicate.iota("x1").argmax()
+
+# 6. Query for the color of that object
+
+return query("What is the color of the main object in the red bounding box?", object_id=object_id)
+```
+
+
+<text>Excluding the tiniest item, what shape appears most often?</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify tiniest item → is_tiniest(x1)
+2.  Select (Iota): Normalize tiniest item score → iota(x1)
+3.  Logic: Create mask for all other items → ~is_tiniest(x1)
+4.  Score: Check shape similarity relation → same_shape(x1, x2)
+5.  Compose: Filter similarity with mask → same_shape(x1, x2) & mask(x1) & mask(x2)
+6.  Count: Count similar shapes per item → count(x1)
+7.  Argmax: Find item with highest shape count → argmax()
+8.  Query: Ask for form/shape → query(object_id)
+</steps>
+```python
+
+# 1. Find the tiniest item
+
+is_tiniest_item = score("Is the main object in the red bounding box the tiniest item?", num_objects=1)
+
+# 2. Create a mask for all other items
+is_tiniest_item = is_tiniest_item.iota("x1")  Select (Iota) for Reference
+remaining_items_mask = ~is_tiniest_item
+
+# 3. Get shape similarity
+same_form = score("Does the item in the red bounding box have the same form as the item in the green bounding box?", num_objects=2)
+
+# 4. Filter similarity to pairs of remaining items
+
+# We only care about pairs (x1, x2) where both are in the remaining set.
+form_similarity_in_remaining = same_form("x1", "x2") & remaining_items_mask("x1") & remaining_items_mask("x2")
+
+# 5. Count, for each item, how many other remaining items share its form
+form_counts = form_similarity_in_remaining.count("x1")
+
+# 6. Find the item with the highest count among the remaining items
+most_frequent_item_id = form_counts.argmax()
+
+# 7. Get the shape of that item
+most_frequent_form = query("What is the form of the item in the red bounding box?", object_id=most_frequent_item_id)
+
+return most_frequent_form
+```
+
+
+
+<text>point to the yellow object that is in the same column as an object that is to the left of a blue square and left of a yellow circle</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify blue objects → blue(x3)
+2.  Score: Identify squares → square(x3)
+3.  Compose: Combine to blue square → blue(x3) & square(x3)
+4.  Select (Iota): Normalize blue square score (Ref 1) → iota(x3)
+5.  Score: Identify yellow objects → yellow(x4)
+6.  Score: Identify circles → circle(x4)
+7.  Compose: Combine to yellow circle → yellow(x4) & circle(x4)
+8.  Select (Iota): Normalize yellow circle score (Ref 2) → iota(x4)
+9.  Use Predefined: Left of relation for Ref 1 → left_of(x2, x3)
+10. Use Predefined: Left of relation for Ref 2 → left_of(x2, x4)
+11. Select (Iota): Normalize intermediary score relative to Ref 1 → iota(x2)
+12. Select (Iota): Normalize intermediary score relative to Ref 2 → iota(x2)
+13. Compose: Combine intermediary scores → score_from_x3(x2) & score_from_x4(x2)
+14. Score: Identify yellow target → yellow(x1)
+15. Score: Same column relation → same_col(x1, x2)
+16. Compose: Combine target, relation, and intermediary → yellow(x1) & same_col(x1, x2) & intermediary_score(x2)
+17. Select (Iota): Normalize final target score → iota(x1)
+18. Argmax: Find index of target object → argmax()
+19. Query: Describe object → query(object_id)
+
+</steps>
+```python
+
+# 1. Define base concepts
+
+yellow = score("Is the main object in the red bounding box yellow?", num_objects=1)
+blue = score("Is the main object in the red bounding box blue?", num_objects=1)
+square = score("Is the main object in the red bounding box a square?", num_objects=1)
+circle = score("Is the main object in the red bounding box a circle?", num_objects=1)
+same_col = score("Is the main object in the red bounding box in the same column as the main object in the green bounding box?", num_objects=2)
+
+# 2. Define composite concepts for the secondary objects
+
+blue_square = (blue("x3").iota("x3") & square("x3").iota("x3")).iota("x3")  Select (Iota) for Reference
+yellow_circle = (yellow("x4").iota("x4") & circle("x4").iota("x4")).iota("x4")  Select (Iota) for Reference
+
+# 3. Define predicates for the intermediary object "x2"
+
+# Predicate for "x2" being left of a blue square "x3"
+
+left_of_blue_square = (left_of("x2", "x3") & blue_square("x3"))
+
+# Predicate for "x2" being left of a yellow circle "x4"
+
+left_of_yellow_circle = (left_of("x2", "x4") & yellow_circle("x4"))
+
+# 4. Use iota to get a 1D selection score for "x2"
+
+# Score for "x2" being left of *any* blue square (aggregates over "x3")
+
+score_x2_from_x3 = left_of_blue_square.iota("x2")  Select (Iota) for Reference
+
+# Score for "x2" being left of *any* yellow circle (aggregates over "x4")
+
+score_x2_from_x4 = left_of_yellow_circle.iota("x2")  Select (Iota) for Reference
+
+# 5. Combine the 1D scores to get the final score for the intermediary object "x2"
+
+intermediary_object_score = (score_x2_from_x3("x2") & score_x2_from_x4("x2"))
+
+# 6. Define the final predicate for the target object "x1"
+# "x1" is yellow AND in the same col as an "x2" that satisfies the conditions
+
+target_predicate = (yellow("x1").iota("x1") & same_col("x1", "x2") & intermediary_object_score("x2"))
+
+# 7. Use iota to get the final 1D selection score for "x1"
+
+# This aggregates over "x2" and normalizes the scores for "x1"
+
+final_selection_score = target_predicate.iota("x1")
+
+# 8. Find the object with the highest score and describe it
+
+object_id = final_selection_score.argmax()
+return query("Describe the object in the red bounding box uniquely", object_id=object_id)
+```
+
+
+
+<text> If an object is a cake, then there exists a sweet object to its left.</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify cakes → is_cake(x1)
+2.  Score: Identify sweet objects → is_sweet(x2)
+3.  Use Predefined: Check left_of relation → left_of(x2, x1)
+4.  Compose: sweet and left → sweet(x2) & left_of(x2, x1)
+5.  Existential quantifier: Check if such x2 exists → .exists("x2")
+6.  Implication: cake(x1) implies existence → .implies()
+7.  Universal quantifier: Check if true for all x1 → .forall("x1")
+</steps>
+```python
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_sweet = score("Is the main object in the red bounding box sweet?", num_objects=1)
+
+# ∃x2: sweet(x2) ∧ left_of(x2, x1)
+sweet_left = (is_sweet("x2") & left_of("x2", "x1")).exists("x2")
+
+# ∀x1: is_cake(x1) ⇒ ∃x2 (...)
+implication = is_cake("x1").implies(sweet_left) # No iota since not definite
+
+if implication.forall("x1"):
+  return "Yes"
+else:
+  return "No"
+```
+
+<text> Does every red object has a bigger blue object to its right.<text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1.  Score: Identify red objects → red(x1)
+2.  Score: Identify blue objects → blue(x2)
+3.  Score: Identify bigger relation (relative) → bigger(x2, x1)
+4.  Use Predefined: Check right_of relation → right_of(x2, x1)
+5.  Compose: blue, bigger, and right_of → blue(x2) & bigger(x2, x1) & right_of(x2, x1)
+6.  Existential quantification: Check if such x2 exists → .exists("x2")
+7.  Implication: red(x1) implies existence → .implies()
+8.  Universal quantification: Check if true for all x1 → .forall("x1")
+</steps>
+```python
+is_red = score("Is the main object in the red bounding box red?", num_objects=1)
+is_blue = score("Is the main object in the red bounding box blue?", num_objects=1)
+bigger = score("Is the main object in the red bounding box bigger than the object in the green bounding box?", num_objects=2)
+
+# For each red object x1, check if there exists a blue object x2 to its right
+
+has_blue_right = (is_blue("x2") & bigger("x2", "x1") & right_of("x2", "x1")).exists("x2")
+implication = is_red("x1").implies(has_blue_right) # No iota since not definite
+
+# Final result: ∀x1 (red ⇒ ∃x2 (blue ∧ right_of))
+if implication.forall("x1"): 
+  return "Yes"
+else:
+  return "No"
+```
+
+<text>Is the metal sphere behind the rubber cylinder?</text>
+<type_of_reasoning>
+Declarative only
+</type_of_reasoning>
+<steps>
+1. Score: Identify metal sphere (target) -> is_metal_sphere(x1)
+2. Score: Identify rubber cylinder (reference) -> is_rubber_cylinder(x2)
+3. Score: Identify relation (behind) -> behind(x1, x2)
+4. Select (Iota): Normalize definite target object score -> iota(x1)
+5. Select (Iota): Normalize reference object score -> iota(x2)
+6. Compose: Combine target, reference, and relation -> metal_sphere(x1) & rubber_cylinder(x2) & behind(x1, x2)
+7. Exists: Check if such a pair exists -> exists()
+</steps>
+```python
+is_metal = score("Is the main object in the red bounding box metal?", num_objects=1)
+is_sphere = score("Is the main object in the red bounding box a sphere?", num_objects=1)
+is_rubber = score("Is the main object in the red bounding box rubber?", num_objects=1)
+is_cylinder = score("Is the main object in the red bounding box a cylinder?", num_objects=1)
+
+# Define concepts and normalize them immediately using iota
+metal_sphere = (is_metal("x1") & is_sphere("x1")).iota("x1")
+rubber_cylinder = (is_rubber("x2") & is_cylinder("x2")).iota("x2")
+
+# Check the relationship
+# We use the normalized concepts to focus on the most likely candidates
+is_behind = (metal_sphere("x1") & rubber_cylinder("x2") & behind("x1", "x2"))
+
+if is_behind.exists():
+    return "Yes"
+else:
+    return "No"
+```
+
+<text>How many colors of small spheres are there?</text>
+<type_of_reasoning>
+Declarative + Imperative
+</type_of_reasoning>
+<steps>
+1.  Score: Identify spheres → is_sphere(x1)
+2.  Score: Identify small objects → is_small(x1)
+3.  Compose: Combine to small sphere → sphere(x1) & small(x1)
+4.  Select (Iota): Normalize small sphere score for iteration → iota(x1)
+5.  Imperative: Loop through objects range(objects_count)
+6.  Query: Get color of valid objects → query("color?", i)
+7.  Imperative: Collect unique colors in a set
+8.  Return: Return size of set
+</steps>
+```python
+is_sphere = score("Is the main object in the red bounding box a sphere?", num_objects=1)
+is_small = score("Is the main object in the red bounding box small?", num_objects=1)
+small_sphere = is_sphere("x1") & is_small("x1")
+# Imperative Reasoning ollect colors of all small spheres
+colors = set()
+for i in range(objects_count):
+    if small_sphere[i]: # no threshold is neeeded
+        color = query("What is the color of the main object in the red bounding box?", object_id=i)
+        colors.add(color)
+return len(colors)
+```
+
+--- Task ---
+
+The data describes different attributes of objects. Possible shapes are cubes, spheres, and cylinders. Possible colors include gray, red, blue, green, brown, purple, cyan, and yellow. Relationships between objects can be to the left, right, behind, or in front. Sizes are either small or large. Finally, the main objects can be made of either rubber or metal.
+
+
+1. Provide a steps breakdown of the problem inside `<steps></steps>`.
+2. Decide which types of reasoning are required to answer the query inside `<type_of_reasoning></type_of_reasoning>`..
+2. You must write the translated (imperative + declarative) program inside ```python```. (Be careful about the syntax)
+3. Use the predefined Spatial Relation Concepts for your reasoning. 
+4. Your code should always either return a number or a string.
+
+Make sure to break down the problem into the smallest possible steps and compose them back up with first order logic and make sure to use all of them, and use the provided functions correctly. Return the appropriate value rather than an object index if the question asks for a type or color. Always start from the reference objects and work back to the main target. Verify your logic by commenting the code. 
+
+Now, please translate the following text into the corresponding program. Choose phrasing for the `query` and `score` functions similar to the examples above and make sure to understand the user query.
+
+<text> {query} </text>

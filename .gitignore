@@ -1,0 +1,51 @@
+# Environment & secrets
+.env
+.env.*
+
+# Python virtual environments
+.venv/
+.venv-*/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Model weights & checkpoints
+*.pth
+*.pt
+*.bin
+*.ckpt
+*.safetensors
+checkpoints/
+sam_res/
+depth_anything_v2/
+model_weights/
+
+# Decompressed program cache (generated from .gz)
+programs/clevr.json
+
+# Large result / data files
+results.json
+*.jsonl
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

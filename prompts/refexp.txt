@@ -1,0 +1,344 @@
+Instructions for Writing Programs For Referral Expressions 
+
+You will be asked to write Python programs to answer questions about a visual scene. 
+Use only the specified functions and adhere to the following guidelines.
+
+--- Available Functions and Usage Guidelines ---
+
+1. **Score Generation with `score`:**
+   - **Purpose:** Determine if objects have certain properties or relationships.
+   - **Returns:** Scores [0-1] for all objects in the scene for the question asked.
+   - **Syntax:**
+     \[
+     result = score(question, num_objects)
+     \]
+   - **Parameters:**
+     - **question (str):** The question to pose to the model.
+     - **num_objects (int):** The number of objects involved (1 or 2).
+       - **1:** A question about the main object. If you use bounding box ask a question about the object in the **red bounding box**. Returns a 1D vector.
+       - **2:** A question involving objects inside of the **red** and the second object in a **green** bounding boxes. The red box is the reference object. Returns a 2D vector with an indentity mask which row[i][j] represents the object i (red bbox) has the relation with j (green bbox).
+   - When asking for properties, You must mention the class of object. "Is the animal inside of the red bounding box brown?", and set type="class"
+   - When asking for relationships, you must mention the class of object. "Is the animal inside of the red bounding box behind the animal inside of the green bounding box?", and set type="relation"
+   - When asking for properties, you must mention the class of object. "Is the animal inside of the red bounding box brown?", and set type="property"
+   - When asking for an object given the image "context", just mention the "main object". "Is the main object inside of the red bounding box in the middle of the scene?", and set type="context"
+   - Make sure to consistently use plural and singulars
+    
+2. **Spatial Relation Concepts**:
+   - Use predefined `left_of`, `right_of`, `above`, `below`, `distance` and `closeness` for spatial relations.
+   - These functions return a 2D vector with an identity mask. The red bounding box is the reference object and the green bounding box is the target object.
+   - **Example:**
+     ```python
+     left_of('x1', 'x2') # Returns a 2D vector of {0,1}
+     right_of('x1', 'x2') # Returns a 2D vector of {0,1}
+     above('x1', 'x2') # Returns a 2D vector of {0,1}
+     below('x1', 'x2') # Returns a 2D vector of {0,1}
+     
+     distance('x1', 'x2') # Returns a 2D vector of normalized scores of distance of x1 from x2 the more an object is far the more the score is close to 1
+     closeness('x1', 'x2') # Returns a 2D vector of normalized scores of inverse of distance of x1 from x2 the more an object is close the more the score is close to 1
+     
+     ## Use the below if you are looking for right most or left most
+     left_of_normalized('x1', 'x2') # Returns a 2D vector of normalized scores of x distance of x1 from x2 the more an object is to the left the more the score is close to 1. Objects to the Further to the left get higher score.
+     right_of_normalized('x1', 'x2') # Returns a 2D vector of normalized scores of x distance of x1 from x2 the more an object is to the right the more the score is close to 1. Objects to the Further to the right get higher score.
+     above_normalized('x1', 'x2') # Returns a 2D vector of normalized scores of y distance of x1 from x2 the more an object is above the more the score is close to 1. Objects to the Further above get higher score.
+     below_normalized('x1', 'x2') # Returns a 2D vector of normalized scores of y distance of x1 from x2 the more an object is below the more the score is close to 1.  Objects to the Further below get higher score.
+     ``` 
+   - Use the combinations of these for new spatial relations for instance, between can be written as ``` left('x1', 'x2') & right('x1', 'x3') | left('x1', 'x3') & right('x1', 'x2') ```
+
+3. **Composition Operations:**
+   - Use `&` or `and_op` for logical AND, `|` or `or_op` for logical OR, and `~` for logical NOT. 
+   - Do not use Python's `and` or `or` for probabilistic/score-based functions.
+   - In composition you can assign **string** variables to predicates; the default variable for 1D predicate is `x1` and 2D predicates `x1`,`x2`.
+   - **Composition Rules:**
+     - 1D concept composed with a 1D concept returns a 1D vector of the composed concept.
+     - 2D concept composed with a 1D concept returns a 2D vector of the composed concept.
+     - For composing more than two predicates use the `or_op` or `and_op` function
+   - **Examples:**
+     ```python
+     is_cake = score("Is the object inside of the red bounding box a cake?", num_objects=1, type="class")
+     same_shape = score("Is the cake inside of the red bounding box the same shape as the object inside of the green bounding box?", num_objects=2, type="relation")
+     is_black = score("Is the cake in the object red bounding box black color?", num_objects=1, type="property")
+
+     is_black_cake = is_cake('x1') & is_black('x1')
+     same_shape_as_black_cake = same_shape('x2','x1') & is_black_cake('x1')
+     ## OR
+     same_shape_as_black_cake = and_op(same_shape('x2','x1'), is_cake('x1'), is_black('x1'))
+     ```
+   - **Important:** 
+     - Do not use `argmax` and indexing for composing relationships with properties.
+     - If you already used a concept in a `query` function, do not compose it again with the results of that same query. 
+       (e.g., avoid: `apple_behind_large_pineapple & is_large_pineapple` → separate them properly).
+
+   - **Another example:**
+     ```python
+     # "blue circle same size as a red circle"
+     blue_circle = is_blue & is_circle # Or is_blue('x1') & is_circle('x1')
+     red_circle = is_red & is_circle # Or is_red('x1') & is_circle('x1')
+     same_size_as_red_circle = same_size & red_circle # Or same_size('x1','x2') & red_circle('x2')
+     blue_circle_same_size_as_red_circle = same_size_as_red_circle & blue_circle # Or same_size_as_red_circle('x1','x2') & blue_circle('x1')
+    ```
+
+4. **Selection with `iota`:**
+   - **Purpose:** Normalize a predicate over a specific variable to softly select among candidate objects.
+   - **Returns:** A reweighted version of the predicate, normalized across the given variable's dimension.
+   - **Syntax:**
+     \[
+     result = predicate.iota(var)
+     \]
+   - **Parameters:**
+     - **var (str):** The variable to normalize over (e.g., `'x1'` or `'x2'`).
+
+   - **Usage Context:**
+     - Use `iota` when composing object properties with relationships, **and one object is assumed to exist**.
+     - It redistributes the scores over that variable, allowing the composed relation to attend to the most relevant candidate(s).
+     - `iota` is useful for disambiguating which object is being referred to, especially when combining a unary property with a binary relation.
+
+   - **Important Notes:**
+     - `iota` **must be applied to the object whose existence is assumed** (in this case, the red circle)**.
+     - Do **not** apply `iota` to relation scores or as a replacement for hard selection like `argmax`.
+     - It ensures soft, differentiable selection and clean composition within neuro-symbolic reasoning.
+
+
+5. **Constraints:**
+    - Do not rely on bounding box order; it is random.
+    - Do not query multiple objects simultaneously without looping.
+    - Do not use more arguments than shown in the examples.
+    - When using `score`, make your questions as specific as possible.
+    - If you combine more than two concepts use `and_op` or `or_op` with proper variables.
+
+Below are some example referral expresssions and their corresponding code snippets:
+
+
+<text> A dog in a field in the middle/text>
+<steps>
+1. Score: dog
+2. Score: dog in the middle
+3. Score: dog in the of the field
+
+</steps>
+<objects>
+dog
+</objects>
+```python
+is_dog = score("Is the main object inside of the red bounding box a dog?", num_objects=1, type="class")
+
+is_middle = score("Is the main object in the red bounding box in the middle of the field?", type="context") # use abstract for context
+
+is_dog_in_field = score("Is the main object inside of the red bounding box in a field?", num_objects=1, type="context") # use abstract for context
+
+return (is_dog('x1') & is_middle('x1') & is_dog_in_field('x1')).iota('x1')
+```
+
+
+<text> Largest black and white dog in a field </text>
+<steps>
+1. Score: dog
+2. Score: black and white
+3. Score: dog in the field
+</steps>
+<objects>
+dog
+</objects>
+```python
+is_dog = score("Is the main object inside of the red bounding box a dog?", num_objects=1, type="class")
+
+
+is_black_and_white = score("Is the dog inside of the red bounding box black and white?", num_objects=1, type="property") ## mention class name for property
+
+is_dog_in_field = score("Is the main object inside of the red bounding box in a field?", num_objects=1, type="context") ## use abstract for context
+closest_brown_dog = score("Is the main object inside of the red bounding box in a field cloesest black and white dog in the field?", num_objects=1, type="context") ## use abstract for context
+
+
+return (is_dog('x1') & closest_brown_dog('x1') & is_dog_in_field('x1') & is_black_and_white('x1')).iota('x1')
+```
+
+<text> Main object next to the cake that is front and center of the room </text>
+<steps>
+1. Score: Find the cake,
+2. Score: In the front of the room
+3. Score: In the center of the room
+4. Composition: Cake (1) in front (2) and in the center (2)
+5. Predfined: Next to is closeness
+6. Composition: Next to (5) Cake in front and in the center (4)
+</steps>
+<objects>
+cake, object
+</objects>
+```python
+is_cake = score("Is the main object inside of the red bounding box a cake?", num_objects=1, type="class")
+
+is_center_of_room = score("Is the main object inside of the red bounding box in the center of the room?", num_objects=1, type="context")  ## use abstract for context
+is_in_front = score("Is the main object inside of the red bounding box in front of the scene?", num_objects=1, type="context") ## use abstract for context
+
+cake_in_center_and_front = and_op(is_center_of_room, is_in_front, is_cake)
+
+is_next_to = closeness('x1', 'x2') & is_cake('x2')
+next_to_cake =  is_next_to('x1','x2') & cake_in_center_and_front('x1')
+return next_to_cake.iota('x2')
+```
+
+<text> The yellow object that is in the same column as an object that is to the left of a blue square and left of a yellow circle </text>
+<steps>
+1. Score: Find the yellow 
+2. Score: Find the circle
+3. Composition: yellow (1) circle (2)
+4. Score: Find the left of
+5. Composition:  left of (2) yellow circle (3)
+6. Score: Find blue
+7. Score: Find square
+8. Composition: blue (6) and square (7)
+9. Composition: left of (4)  blue square (8)
+10. Score: same column
+11. Composition: same_column (10) as an object to the left blue score (9)
+12. Composition: Yellow (1) and same_column as an object to the left blue score (11) and left of yellow circle (5)
+13. Argmax: (12)
+</steps>
+<objects>
+object, square, circle
+</objects>
+```python
+circle = score("Is the main object inside of the red bounding box a circle?", num_objects=1, type="class")
+square = score("Is the main object inside of the red bounding box a square?", num_objects=1, type="class")
+
+yellow = score("Is the main object inside of the red bounding box yellow?", num_objects=1, type="property") 
+yellow_circle = (yellow & circle)
+
+left_of_yellow_circle = left_of('x1', 'x2') & yellow_circle('x2')
+
+blue = score("Is the main object inside of the red bounding box blue?", num_objects=1, type="property")
+blue_square = blue & square
+left_of_blue_square = blue_square('x1') & left_of('x1', 'x2')
+
+left_of_blue_square_and_left_of_yellow_circle = left_of_blue_square('x1', 'x2') & left_of_yellow_circle('x1', 'x3')
+
+same_col = score("Are the main objects inside of the red and green bounding boxes in the same column?",
+                 num_objects=2, type="relation")
+same_col_left_of_blue_square_and_left_of_yellow_circle = (
+    same_col('x1', 'x2') & left_of_blue_square_and_left_of_yellow_circle('x1', 'x3')
+)
+
+yellow_same_col_left_of_blue_square_and_left_of_yellow_circle = (
+    yellow('x1') & same_col_left_of_blue_square_and_left_of_yellow_circle('x1', 'x2')
+)
+
+return yellow_same_col_left_of_blue_square_and_left_of_yellow_circle.iota('x1')
+```
+
+<text> The women next to the cake that is front and center of the room </text>
+<steps>
+1. Score: Find the cake,
+2. Score: Find the women
+3. Score: In the front of the room
+4. Score: In the center of the room
+5. Composition: Cake (1) in front (3) and in the center (4)
+6. Score: Next to
+7. Composition: Woman (2) Next to (5) Cake in front and in the center (4)
+</steps>
+<objects>
+women, cake
+</objects>
+```python
+is_cake = score("Is the main object inside of the red bounding box a cake?", num_objects=1, type="class")
+is_women = score("Is the main object inside of the red bounding box a women?", num_objects=1, type="class")
+
+is_center_of_room = score("Is the main object inside of the red bounding box in the center of the room?", num_objects=1, type="context") ## use abstract for context
+is_in_front = score("Is the main object inside of the red bounding box in front of the scene?", num_objects=1, type="context") ## use abstract for context
+
+cake_in_center_and_front = and_op(is_cake, is_center_of_room, is_in_front)
+
+cake_in_center_and_front = cake_in_center_and_front.iota()
+
+is_next_to = closeness # Defined
+is_next_to = is_next_to('x1', 'x2') & is_cake('x2')
+
+woman_next_to_cake = is_women('x1') & is_next_to('x1', 'x2') & cake_in_center_and_front('x2')
+return woman_next_to_cake.iota('x1')
+```
+
+
+<text> Device to the right of the bag that is white and open </text>
+<steps>
+1. Score: identify device objects → `is_device(x1)`
+2. Score: identify bag objects → `is_bag(x2)`
+3. Score: check right relation between red (device) and green (bag) → `right_of(x1,x2)`
+4. Score: check if device is white → `is_white(x1)`
+5. Score: check if device is open → `is_open(x1)`
+6. Compose predicate: device is to the right of bag → combine `is_device('x1')`, `is_bag('x2')`, and `right_of('x1','x2')`
+7. Compose predicate: device is white and open → combine `is_device('x1')` and `is_white('x1')` and `is_open('x1')`
+</steps>
+<objects>
+device, bag
+</objects>
+```python
+# 1. Identify device objects
+is_device = score("Is the main object inside of the red bounding box a device?", num_objects=1, type="class")
+# 2. Identify bag objects
+is_bag = score("Is the main object inside of the red bounding box a bag?", num_objects=1,  type="class")
+# 3. Identify if the device is white
+is_white = score("Is the device inside of the red bounding box white?", num_objects=1, type="property") # mentioning class for property
+# 4. Identify if the device is open
+is_open = score("Is the device inside of the red bounding box open?", num_objects=1, type="property") # mentioning class for property
+# 5. Compose predicate: device is to the right of bag
+open_white_device = is_device('x1') & is_white('x1') & is_open('x1') & right_of('x1', 'x2') & is_bag('x2')
+return open_white_device.iota('x1')
+```
+
+<text> lower right of couch and black arm of chair </text>
+<steps>
+1. Score: Identify couch objects → `is_couch(x2)`
+2. Score: Identify chair arm objects → `is_arm(x1)`
+3. Score: Check black color property for chair arm → `is_black(x1)`
+4. Score: Check "lower right" spatial relationship → `lower_right(x1, x2)`
+5. Composition: Arm of chair (2) that is black (3) → `black_arm = is_arm & is_black`
+6. Composition: Black arm (5) in lower right of couch (1) → `lower_right('x1','x2') & is_couch('x2') & black_arm('x1')`
+</steps>
+<objects>
+couch, chair arm
+</objects>
+```python
+# Core object identification
+is_couch = score("Is the main object inside of the red bounding box a couch?", num_objects=1, type="class")
+is_arm = score("Is the main object inside of the red bounding box an arm of a chair?", num_objects=1, type="class")
+
+# Property checks with class specification
+is_black = score("Is the arm of the chair inside of the red bounding box black?", num_objects=1, type="property") ## mention class for property
+# Spatial relation checks
+lower_right = below('x1', 'x2') & right_of('x1', 'x2')
+
+# Composition with neuro-symbolic operations
+black_arm = is_arm('x1') & is_black('x1')
+final_predicate = lower_right('x1', 'x2') & is_couch('x2') & black_arm('x1')
+
+return final_predicate.iota('x1')
+```
+
+<text> back of a red and black car </text>
+<steps>
+1. Score: Identify car objects → `is_car(x1)`
+2. Score: Check black and red color property for car → `is_black_and_red(x1)`
+3. Composition: Car (1) that is black and red (2) → `black_and_red_car`
+</steps>
+<objects>
+car, back of a car
+</objects>
+```python
+# Core object identification
+is_car = score("Is the main object inside of the red bounding box a car?", num_objects=1, type="class")
+# Property checks with class specification
+is_black_and_red = score("Is the car inside of the red bounding box black and red?", num_objects=1, type="property") ## mention class for property
+# Composition with neuro-symbolic operations
+black_and_red_car = is_car('x1') & is_black_and_red('x1')
+return black_and_red_car.iota('x1')
+```
+
+
+--- Task ---
+
+1. Break down the referral query, first find the score the objects class then check the properties with appropriate class.
+2. Provide a steps of the problem `<steps></steps>`.
+3. Give the objects (e.g. car, horse) or regions (e.g. back of the car, half of the horse) required to extract from the scene for reasoning in the `Find` part in `<objects></objects>` make sure to consistently use plural and singulars from the original query use `cats` instead of `cat`
+4. You must write the translated program inside ````python```` (Be careful about the syntax).
+5. Your final output should be a iota() of the corresponding variable name like .iota('x1') or .iota('x2') 
+6. In the object referrals, the first object is always referred with a red bounding box and the second object is referred with a green bounding box.
+Now, please translate the following text into the corresponding program.
+
+<text> {query} </text>

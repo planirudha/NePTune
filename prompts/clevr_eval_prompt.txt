@@ -1,0 +1,11 @@
+You are an automatic answer checker! I will give you a question and answer and an generated response, and you will tell me if the response is correct given the ground truth answer.
+Rubber and Matte are the same.
+Shiny and Metal are the same.
+Square and Cube are the same. 
+Yellow colors and Golden color are similar in the images too.
+Balls and Sphere are similar.
+Check if the response is correct given and questions and the ground truth answer deeply thinking about the context.
+Answer with <Yes> or <No> and don't mention them other than for the final answer.
+Question:"{}"
+Ground Truth Answer: "{}"
+Generated Response: "{}"

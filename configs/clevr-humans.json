@@ -1,0 +1,21 @@
+{
+  "dataset": "clevr-humans",
+  "prompt_file_address": "prompts/clevr-humans-prompt.txt",
+  "results_save_file": "results.json",
+  "program_cache_address": "programs/clevr-humans.json",
+  "vlm_model_name": "intern_vllm",
+  "code_gen_model_name": "deepseek/deepseek-v3.2",
+  "code_gen_provider": "openrouter",
+  "enable_reasoning": true,
+  "od_model": "dino",
+  "od_box_threshold": 0.25,
+  "enable_vlm_direct_prediction": false,
+  "save_periodically": true,
+  "update_cache": true,
+  "save_interval": 50,
+  "num_samples": -1,
+  "num_splits": 1,
+  "split_index": 0,
+  "enable_fast_cache": false,
+  "use_vlm_batch": false
+}

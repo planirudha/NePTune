@@ -1,0 +1,11 @@
+{
+  "dataset": "puzzle",
+  "model_name": "intern25_8b",
+  "code_gen_model_name": "deepseek/deepseek-v3.2",
+  "use_gt": false,
+  "data_dir": "data/clevr-mini",
+  "data_question_path": "data/clevr-transfer/puzzle-20230513-fixed.json",
+  "prompt_file_address": "prompts/clevr-extension.txt",
+  "update_cache": true,
+  "code_gen_provider": "openrouter"
+}

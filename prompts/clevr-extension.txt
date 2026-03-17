@@ -1,0 +1,501 @@
+Instructions for Writing Programs Based on Scene Descriptions
+
+You will be asked to write Python programs to answer questions about a visual scene. 
+Use only the specified functions and adhere to the following guidelines.
+
+--- Available Functions and Usage Guidelines ---
+
+1. **Score Generation with `score`:**
+   - **Purpose:** Determine if objects have certain properties or relationships.
+   - **Returns:** Scores [0-1] for all objects in the scene for the question asked.
+   - **Syntax:**
+     \[
+     result = score(question, num_objects)
+     \]
+   - **Parameters:**
+     - **question (str):** The question to pose to the model.
+     - **num_objects (int):** The number of objects involved (0 to 3).
+       - **0:** A question about the entire scene. Returns a scalar value.
+       - **1:** A question about the main object. If you use bounding box ask a question about the object in the red bounding box. Returns a 1D vector.
+       - **2:** A question involving objects in the red and green bounding boxes. The red box is the reference object. Returns a 2D vector with an indentity mask which row[i][j] represents the object i (red bbox) has the relation with j (green bbox).
+       - **3:** A question involving objects in the red, green, and blue bounding boxes. The red box is the reference object. Returns a 3D vector.
+
+  2. **Precomputed Spatial Relations (use directly):**
+     - Spatial relations are already provided as tensors in the runtime context: `left`, `right`, `front`, `behind` (also `above`, `below`, `distance`).
+     - Use them directly as predicates, e.g. `left('x1', 'x2')` means object `x1` is left of object `x2`.
+     - Do **not** define these spatial relations with `score(...)`.
+     
+3. **Querying with `query`:**
+   - **Purpose:** Retrieve specific textual information about an object.
+   - **Returns:** A string answer for the question mentioned in the query (It may include reference to the red bounding box). 
+   - **Syntax:**
+     \[
+     answer = query(question, object_id)
+     \]
+   - **Parameters:**
+     - **question (str):** The question to ask.
+     - **object_id (int):** The identifier of the main object, typically obtained from `argmax()`. 
+   - Warning: Since the output is undeterministic don't use string equality
+   
+4. **Composition Operations:**
+   - Use `&` or `and_op` for logical AND, `|` or `or_op` for logical OR, and `~` for logical NOT. 
+   - Do not use Python's `and` or `or` for probabilistic/score-based functions.
+   - In composition you can assign **string** variables to predicates; the default variable for 1D predicate is `x1` and 2D predicates `x1`,`x2`.
+   - **Composition Rules:**
+     - 1D concept composed with a 1D concept returns a 1D vector of the composed concept.
+     - 2D concept composed with a 1D concept returns a 2D vector of the composed concept.
+     - For composing more than two predicates use the `or_op` or `and_op` function
+   - **Examples:**
+     <code>
+     is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+     same_shape = score("Is the main object in the red bounding box the same shape as the main object in the green bounding box?", num_objects=2)
+     is_black = score("Is the main in the object red bounding box black color?", num_objects=1)
+
+     is_black_cat = is_cat('x1') & is_black('x1')
+     same_shape_as_black_cat = same_shape('x2','x1') & is_black_cat('x1')
+     ## OR
+     same_shape_as_black_cat = and_op(same_shape('x2','x1'), is_cat('x1'), is_black('x1'))
+     </code>
+   - **Important:** 
+     - Do not use `argmax` and indexing for composing relationships with properties.
+     - If you already used a concept in a `query` function, do not compose it again with the results of that same query. 
+       (e.g., avoid: `apple_behind_large_pineapple & is_large_pineapple` → separate them properly).
+
+   - **Another example:**
+     <code>
+     # "blue circle same size as a red circle"
+     blue_circle = is_blue & is_circle # Or is_blue('x1') & is_circle('x1')
+     red_circle = is_red & is_circle # Or is_red('x1') & is_circle('x1')
+     same_size_as_red_circle = same_size & red_circle # Or same_size('x1','x2') & red_circle('x2')
+     blue_circle_same_size_as_red_circle = same_size_as_red_circle & blue_circle # Or same_size_as_red_circle('x1','x2') & blue_circle('x1')
+    </code>
+
+5. **Existence and Counting:**
+   - To check if any object satisfies a predicate, use .exists(). Example: is_red.exists()
+   - To check if any object along a specific variable satisfies a condition, use exists with only one variable such as `.exists('x1')` or `.exists('x2')`. Example: (is_blue('x2') & left_of('x2', 'x1')).exists('x2')
+   - To check if all objects satisfy a predicate, use .forall('x1') or .forall('x2'). Example: is_red.forall('x1')
+  - Combine .forall() with implication to express universal quantification. Example: red = score("Is red?", num_objects=1) blue = score("Is blue?", num_objects=1) result = red('x1').implies((blue('x2') & left('x2', 'x1')).exists('x2')).forall('x1')
+   - Use .count() to count how many objects match a predicate: count = is_cat.count() count_per_object = same_shape.count('x1') or same_shape.count('x1', 'x2')
+   - You can compare counts using >, <, ==. Example: more_red = is_red.count() > is_blue.count()
+   - **Count occurrences:**
+     <code>
+     counts = is_cat.count() # returns the number of cats
+     counts = is_cat.count('x1') # return a 1D vector with 1 where object 'i' is a cat
+     counts = same_shape.count() # returns a total number of objects that have the same shape (it's the value times 2 if the relation is symmetric)
+     counts = same_shape.count('x1') # return a 1D vector with the number of object with the same_shape as object `i`
+     counts = same_shape.count('x1', 'x2') # returns a 2D matrix of if `i` is in the same shape as `j`
+     </code>
+   - You can compare counts using >, <, ==. Example: more_red = is_red.count() > is_blue.count()
+
+     
+6. **Comparisons:**
+   - Use `>`, `<`, `==` to compare counts or other numerical values.
+   - **Example:**
+     more_apples = apple_count > orange_count
+     
+
+7. **Indexing with `argmax`:**
+   - **Purpose:** Find the index of the main object with the highest score.
+   - **Syntax:**
+     index = result.argmax()
+     
+   - **Get the n-th highest index:**
+     index = result.argmax(k=n)
+   - Get the top-k indices
+     topk = result.topk(k=1,dim=-1)
+   - **Restriction:** 
+     - Never use `argmax` results for further composition with slicing and indexing. 
+       *Incorrect:* `same_row_as_blue_circle = same_row[blue_circle.argmax(), :]`
+       *Correct:* `same_row_as_blue_circle = same_row("x1","x2") & blue_circle("x2")`
+
+    
+8. **Variables:**
+   - `objects_count` holds the total number of objects in the scene.
+
+9. **Looping and Iteration:**
+   - Only use loops for querying multiple objects.
+   - **Example:**
+     colors = [query("What is the color of the main object in the red bounding box?", object_id=i)
+               for i in range(objects_count) if is_apple[i]]
+
+10. **Constraints:**
+    - Do not rely on bounding box order; it is random.
+    - Avoid using `for` loops except where needed for querying multiple objects.
+    - Break down problems into the simplest possible steps.
+    - Do not query multiple objects simultaneously without looping.
+    - Do not use more arguments than shown in the examples.
+    - When using `score`, make your questions as specific as possible.
+    - Never use `score` to model spatial relations like left/right/front/behind; use the precomputed relation tensors directly.
+    - If you combine more than two concepts use `and_op` or `or_op` with proper variables.
+    - Don't use equal sign and for the results of `query` since the output of `query` coming from an LLM can be undeterministic. 
+11. **Avoid Comparing Query Results Directly:**
+    - Use `score` for concept comparisons rather than comparing string or numeric outputs from `query`.
+    - **Example (checking if any two objects share the same color):**
+      <code>
+      # Check if main objects in red & green bounding boxes share the same color
+      same_color = score("Is the main object in the red bounding box the same color as the main object in the green bounding box?", num_objects=2)
+      # Check if there is at least one pair of objects with the same color
+      return same_color.exists()
+      </code>
+    - **Do NOT do**:
+      colors = [query("What is the color of the main object in the red bounding box?", object_id=i) for i in range(objects_count)]
+      # then compare colors[i] to colors[j] in a loop
+      or if query("What is the color of the main object in the red bounding box?") == "red". Use the `score` function for these comparison
+
+--- Examples ---
+
+Below are some example questions and their corresponding code snippets:
+
+
+<text>What is the color of the image?</text>
+<steps>query color of the image</steps>
+<code>
+return query("What is the color of the image?")
+</code>
+
+
+
+<text>Which cat is just right of the cake?</text>
+<steps>
+1. Score: Find the cat
+2. Score: Find the cake
+3. Score: Find the object just right of the cake
+4. Composition: the right of the cake  
+5. Composition: cat right of cake 
+</steps>
+<code>
+is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+
+cat_just_right_of_cake = and_op(is_cat("x1"), right("x1", "x2"), is_cake("x2"))
+return cat_just_right_of_cake.argmax()
+</code>
+
+
+
+<text>How many apples does the cat have in its paws?</text>
+<steps>
+1. Score: Find the cat
+2. Score: Find apple
+3. Score: Find "in the paws"
+4. Composition: in cat (1) paws (3)
+5. Composition: apples (2) in cats paws (4)
+6. Count: apples in cats' paws,
+</steps>
+<code>
+is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+in_the_paws = score("Is the main object in the red bounding box in the paws of the main object in the green bounding box?",
+                    num_objects=2)
+
+in_cats_paws = in_the_paws('x1', 'x2') & is_cat('x2')
+is_apple = score("Is the main object in the red bounding box an apple?", num_objects=1)
+apple_in_cats_paws = is_apple("x3") & in_cats_paws("x3", "x2")
+return apple_in_cats_paws.count()
+</code>
+
+
+
+<text>Are there more cakes or apples?</text>
+<steps>
+1. Score: Find apples
+2. Score: Find cakes
+3. Count: apples (1)
+4. Count: cakes (2)
+5. Compare: apples count (3) and cakes count (4)
+</steps>
+<code>
+is_apple = score("Is the main object in the red bounding box an apple?", num_objects=1)
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+
+apple_count = is_apple.count()
+cake_count = is_cake.count()
+if apple_count > cake_count:
+    return "apples"
+else:
+    return "cakes"
+</code>
+
+
+<text>Are there more apples over cakes at the end of the room?</text>
+<steps>
+1. Score: Find apples
+2. Score: Find cakes
+3. Score: Find at the end of room
+4. Composition: Cakes (2) at the of the room (3)
+5. Count: Apples
+6. Count: Cakes at the end of the room (4)
+7. Compare: Apple counts (5) and cakes at the end of the room (6)
+</steps>
+<code>
+is_apple = score("Is the main object in the red bounding box an apple?", num_objects=1)
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_at_the_end_of_room = score("Is the main object at the end of the room?", num_objects=1)
+
+count_apples = (is_apple("x1") & is_at_the_end_of_room("x1")).count()
+count_cakes = (is_cake("x2") & is_at_the_end_of_room("x2")).count()
+
+return count_apples > count_cakes
+</code>
+
+<text> is the color of the frutherest cat black or white? <text>
+<steps> 
+1. Score: Find cats
+2. Score: Find black
+3. Score: Find the furtherest cat
+4. Composition: black (2) and furtherest cat (3)
+</steps>
+<code>
+is_cat = score("Is the main object in the red bounding box a cat?", num_objects=1)
+is_furtherest = score("Is the main object in the red bounding box the furtherest object in the scene?", num_objects=1)
+is_black = score("Is the main object in the red bounding box black?", num_objects=1)
+is_white = score("Is the main object in the red bounding box white?", num_objects=1)
+
+if and_op(is_cat, is_black, is_furtherest).exists() > and_op(is_cat, is_white, is_furtherest).exists():
+    return "black"
+else:
+    return "white"
+
+</code>
+
+
+
+<text>What is the main object next to the cake that is front and center of the room?</text>
+<steps>
+1. Score: Find the cake,
+2. Score: In the front of the room
+3. Score: In the center of the room
+4. Composition: Cake (1) in front (2) and in the center (2)
+5. Score: Next to
+6. Composition: Next to (5) Cake in front and in the center (4)
+</steps>
+<code>
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_center_of_room = score("Is the main object in the red bounding box in the center of the room?", num_objects=1)
+is_in_front = score("Is the main object in the red bounding box in front of the scene?", num_objects=1)
+
+cake_in_center_and_front = and_op(is_center_of_room, is_in_front, is_cake)
+
+is_next_to = score("Is the main object in the red bounding box next to the main object in the green bounding box?",
+                   num_objects=2)
+next_to_cake =  is_next_to("x1,"x2") & cake_in_center_and_front("x1")
+object_id = next_to_cake.argmax("x1")
+
+return query("What is the shape and color of main object in the red bounding box?", object_id=object_id)
+</code>
+
+
+
+<text>Is there a same number of cakes and apples or is there less cakes than apples?</text>
+<steps>
+1. Score: Find cakes
+2. Score: Find apples
+3. Count: cakes (1)
+4. Count: apples (2)
+5. Compare cake count (3) and apple count (4)
+</steps>
+<code>
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_apple = score("Is the main object in the red bounding box an apple?", num_objects=1)
+
+cakes_count = is_cake.count()
+apples_count = is_apple.count()
+return (cakes_count < apples_count)
+</code>
+
+
+<text>What is the color of the biggest circle?</text>
+<steps>
+1. Score: Find the largest circle
+2. Query: Biggest circle (1) color
+</steps>
+<code>
+is_largest_item = score("Is the main object in the red bounding box the largest item in the image?", num_objects=1)
+is_circle = score("Is the main object in the red bounding box a circle?", num_objects=1)
+
+largest_circle_item = is_largest_item & is_circle
+largest_circle_item_id = largest_circle_item.argmax()
+
+largest_item_color = query("What is the color of the main object in the red bounding box?", object_id=largest_circle_item_id)
+
+return largest_item_color
+</code>
+
+
+
+<text>If the largest item was removed, what color would be most seen in this set?</text>
+<steps>
+1. Score: Find the largest item
+2. NEG: Remove the largest object (2)
+3. Score: Find which object has the object with similar other objects
+4. Composition: Mask the objects that are not the largest (2)
+5. Count: Find the most repeated color
+6. Query: Extract the color of (5) argmax 
+</steps>
+<code>
+# 1. Identify the largest object
+is_largest_item = score("Is the main object in the red bounding box the largest item?", num_objects=1)
+
+# 2. Mask to remove the largest item
+remaining_items_color = ~is_largest_item  # 1D tensor over x1
+
+# 3. Compute color similarity matrix
+similar_colors = score("Is the main object in the red bounding box the same color as the main object in the green bounding box?", num_objects=2)
+
+# 4. Mask similarity to ignore x2s that are the largest item
+masked_similarity = similar_colors("x1", "x2") & remaining_items_color("x2")
+
+# 5. Count how many other remaining items share color with each x1
+similar_colors_count = masked_similarity.count("x1")  # 1D over x1
+
+# 6. Find the x1 with the highest number of similar-colored remaining items
+most_similar_color_object_id = similar_colors_count.argmax()
+
+# 7. Query its color
+most_similar_color = query("What is the color of the main object in the red bounding box?", object_id=most_similar_color_object_id)
+
+return most_similar_color
+</code>
+
+
+
+<text>point to the yellow object that is in the same column as an object that is to the left of a blue square and left of a yellow circle</text>
+<steps>
+1. Score: Find the yellow 
+2. Score: Find the circle
+3. Composition: yellow (1) circle (2)
+4. Score: Find the left of
+5. Composition:  left of (2) yellow circle (3)
+6. Score: Find blue
+7. Score: Find square
+8. Composition: blue (6) and square (7)
+9. Composition: left of (4)  blue square (8)
+10. Score: same column
+11. Composition: same_column (10) as an object to the left blue score (9)
+12. Composition: Yellow (1) and same_column as an object to the left blue score (11) and left of yellow circle (5)
+13. Argmax: (12)
+</steps>
+<code>
+yellow = score("Is the main object in the red bounding box yellow?", num_objects=1)
+circle = score("Is the main object in the red bounding box a circle?", num_objects=1)
+yellow_circle = (yellow & circle)
+
+left_of_yellow_circle = left("x1", "x2") & yellow_circle("x2")
+
+blue = score("Is the main object in the red bounding box blue?", num_objects=1)
+square = score("Is the main object in the red bounding box a square?", num_objects=1)
+blue_square = blue & square
+
+left_of_blue_square = blue_square("x1") & left("x1", "x2")
+
+left_of_blue_square_and_left_of_yellow_circle = left_of_blue_square("x1", "x2") & left_of_yellow_circle("x1", "x3")
+
+same_col = score("Are the main objects in the red and green bounding boxes in the same column?",
+                 num_objects=2)
+same_col_left_of_blue_square_and_left_of_yellow_circle = (
+    same_col("x1", "x2") & left_of_blue_square_and_left_of_yellow_circle("x1", "x3")
+)
+
+yellow_same_col_left_of_blue_square_and_left_of_yellow_circle = (
+    yellow("x1") & same_col_left_of_blue_square_and_left_of_yellow_circle("x1", "x2")
+)
+
+return yellow_same_col_left_of_blue_square_and_left_of_yellow_circle.argmax("x1")
+</code>
+
+<text> If an object is a cake, then there exists a sweet object to its left.</text>
+<steps>
+1. Score: Identify cakes → is_cake(x1)
+2. Score: Identify sweet objects → is_sweet(x2)
+3. Score: Check left_of(x2, x1) (green left of red)
+4. Compose: sweet(x2) ∧ left_of(x2, x1)
+5. Existential quantifier over x2: ∃x2 (sweet ∧ left_of)
+6. Implication: is_cake(x1) ⇒ ∃x2 (...)
+7. Universal quantifier over x1: ∀x1
+</steps>
+<code>
+is_cake = score("Is the main object in the red bounding box a cake?", num_objects=1)
+is_sweet = score("Is the main object in the red bounding box sweet?", num_objects=1)
+
+# ∃x2: sweet(x2) ∧ left_of(x2, x1)
+sweet_left = (is_sweet('x2') & left_of('x2', 'x1')).exists('x2')
+
+# ∀x1: is_cake(x1) ⇒ ∃x2 (...)
+implication = is_cake('x1').implies(sweet_left)
+
+return implication.forall('x1')
+</code>
+
+<text> Does every red object has a blue object to its left.<text>
+<steps>
+1. Score: identify red objects → red(x1)
+2. Score: identify blue objects → blue(x2)
+3. Score: check if x2 is left of x1 → left_of(x2, x1)
+4. Compose: blue(x2) ∧ left_of(x2, x1)
+5. Existential quantification: ∃x2 (...)
+6. Implication: red(x1) ⇒ ∃x2 (...)
+7. Universal quantification: ∀x1 (...)
+</steps>
+<code>
+is_red = score("Is the main object in the red bounding box red?", num_objects=1)
+is_blue = score("Is the main object in the red bounding box blue?", num_objects=1)
+
+# For each red object x1, check if there exists a blue object x2 to its left
+has_blue_left = (is_blue('x2') & left('x2', 'x1')).exists('x2')
+implication = is_red('x1').implies(has_blue_left)
+
+# Final result: ∀x1 (red ⇒ ∃x2 (blue ∧ left_of))
+return implication.forall('x1')
+</code>
+
+<text> The blue object to the left of the green horse that is left of the red house.<text>
+<simplified> The blue object to the left of the green horse that is left of the red house. <text>
+<steps>
+1. Score: Identify blue objects → is_blue(x1)
+2. Score: Identify horse → is_horse(x2)
+3. Score: Identify green → is_green(x2)
+4. Score: Identify houses → is_house(x3)
+5. Score: Identify red → is_red(x3)
+4. Score: Check left_of(x1, x2) (blue left of green horse)
+5. Score: Check left_of(x2, x3) (green horse left of red house)
+6. Compose: blue(x1) ∧ left_of(x1, x2) ∧ green_horse(x2) ∧ left_of(x2, x3) ∧ red_house(x3)
+7. iota(x1): Return the blue object
+</steps>
+<code>
+# Step 1: Identify the blue object
+is_blue = score("Is the main object in the red bounding box blue?", num_objects=1)
+
+# Step 2: Identify the green horse
+is_horse = score("Is the main object in the red bounding box a horse?", num_objects=1)
+is_green = score("Is the horse in the red bounding box green?", num_objects=1)
+green_horse = is_horse("x2") & is_green("x2")
+
+# Step 3: Identify the red house
+is_house = score("Is the main object in the red bounding box a house?", num_objects=1)
+is_red = score("Is the house in the red bounding box red?", num_objects=1)
+red_house = is_house("x3") & is_red("x3")
+
+# Step 4: Check the left relationships
+blue_left_of_green_horse = is_blue("x1") & left("x1", "x2") & green_horse("x2")
+
+left_of_green_horse_left_of_red_house = left("x2", "x3") & red_house("x3")
+
+blue_left_of_green_horse_left_of_red_house = blue_left_of_green_horse("x1", "x2") & left_of_green_horse_left_of_red_house("x2", "x3")
+
+return blue_left_of_green_horse_left_of_red_house.iota("x1")
+--- Task ---
+
+The data describes different attributes of objects. Possible shapes are cubes, spheres, and cylinders. Possible colors include gray, red, blue, green, brown, purple, cyan, and yellow. Relationships between objects can be to the left, right, behind, or in front. Sizes are either small or large. Finally, the main objects can be made of either rubber or metal.
+
+
+1. Provide a simplified breakdown of the problem inside `<steps></steps>`.
+2. You must write the translated program inside `<code></code>`. don't put it inside of python. (Be careful about the syntax)
+3. Before you write the programs, first translate the language into a more simple form, removing excess information, for example, simplify <text>The towel hanging draped over the side of the tub.</text> to <simplified>The towel on the tub</simplified>, before writing the correct program, <code> ((towel("x1") & tub("x2")) & on("x1", "x2")).iota("x1") </code>.
+4. If a query asks if you can find a set of objects with relations, each object is referred to with a number, for example object 1. these object numberings act as references. the referenced objects sometimes form relations. for code generation, use nested `exist` relations, for example "<code>(rubber(x1) and sphere(x1) and small(x2) and small(x3) and purple(x3) and small(x4) and blue(x4) and rubber(x4) and behind(x1, x4) and left(x1, x2) and left(x3, x4)).exists()</code>"
+5. for queries regarding objects in grids, figure out the pattern is in the grid first. write in <simplified> text what the pattern is for each row, for example "<simplified>in this grid, each row have the same shape object with different colors. hence the object in row 3 col 3 should be a red cube, based on the shape in row 3, and the colors of the first two objects.</simplified>". then, reasoning to figure out what properties the object in row 3 col 3 should have, with the most minimal rules for the pattern. finally, write an `exist` function checking only for the properties of the object. do not check for `same_object`.
+6. The final answer should be either the `.exists` for existence check questions or `.iota` for referral expression questions.
+
+Make sure to break down the problem into the smallest possible steps and compose them back up with first order logic and make sure to use all of them, and use the provided functions correctly. Return the appropriate value rather than an object index if the question asks for a type or color. Always start from the reference objects and work back to the main target. Verify your logic by commenting the code. 
+
+Now, please translate the following text into the corresponding program. Choose phrasing for the `query` and `score` functions similar to the examples above and make sure to understand the user query.
+
+<text> {query} </text>
