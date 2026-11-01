@@ -1,9 +1,10 @@
+import functools
 import torch
 import os
 from PIL import Image
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, Cache, GenerationConfig, GenerationMixin
 from typing import Optional, List, Tuple
 import logging
 """
@@ -1025,7 +1026,26 @@ class InternVL(Agent):
             # device_map="auto",
             device_map={ "": device_id },
         ).eval()
-        
+
+        # transformers>=4.50 no longer mixes GenerationMixin into PreTrainedModel,
+        # so the remote InternLM2ForCausalLM has no .generate(); add it back.
+        lm = self.model.language_model
+        if not issubclass(type(lm), GenerationMixin):
+            type(lm).__bases__ = type(lm).__bases__ + (GenerationMixin,)
+        if lm.generation_config is None:
+            lm.generation_config = GenerationConfig.from_model_config(lm.config)
+        # The remote InternLM2 code only understands legacy tuple caches, but
+        # generate() now seeds an empty DynamicCache.
+        orig_prepare = lm.prepare_inputs_for_generation
+
+        @functools.wraps(orig_prepare)  # generate() inspects this signature
+        def prepare_with_legacy_cache(input_ids, past_key_values=None, **kwargs):
+            if isinstance(past_key_values, Cache):
+                past_key_values = past_key_values.to_legacy_cache() if past_key_values.get_seq_length() > 0 else None
+            return orig_prepare(input_ids, past_key_values=past_key_values, **kwargs)
+
+        lm.prepare_inputs_for_generation = prepare_with_legacy_cache
+
         self.model.cuda()
         # InternVL uses special tokens for images
         # We'll store them for convenience.

@@ -770,6 +770,10 @@ class ProbabilisticTensor:
     @cache_action.__get__(object)
     def __bool__(self):
         return (self.tensor >= 0.5).all().item()
+    def __float__(self):
+        return float(self.tensor.item())
+    def __int__(self):
+        return int(self.tensor.item())
     @cache_action.__get__(object)
     def __len__(self):
         return len(self.tensor)

@@ -76,6 +76,7 @@ class CLEVRDataset(Dataset):
             'image': image,
             'image_path': image_path,
             'image_index': image_index,
-            'bboxes': bounding_boxes,
+            # None (not []) when the scene has no Mask R-CNN detections, so run_vqa.py falls back to the OD model
+            'bboxes': bounding_boxes if 'objects_detection' in scene_info else None,
             'original_item': question_item,
         }
