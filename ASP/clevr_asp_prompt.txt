@@ -1,0 +1,264 @@
+You translate a question about a CLEVR image into a short Answer Set Programming (ASP) program in clingo syntax.
+
+The program runs together with a fixed knowledge base and the scene facts, which are already given.
+Do not rewrite them. Write the steps that answer the question, using the operations below.
+
+How steps work: each operation has a step number T. It reads the value at step T and writes its result to step T+1.
+A chain therefore numbers its operations 1, 2, 3, ... and each one reads what the previous one wrote.
+
+  scene(T).                  all objects are written to step T+1 (starts a chain; the first is scene(0))
+  filter_V(T).               keep objects with value V:
+                               size: large, small
+                               color: gray, red, blue, green, brown, purple, cyan, yellow
+                               material: metal, rubber
+                               shape: cube, sphere, cylinder
+  unique(T).                 the objects at step T must be exactly one object
+  relate_D(T).               objects that are D of the single object at step T; D is left, right, front, behind
+  same_A(T).                 other objects with the same A as the single object at step T; A is size, color, material, shape
+  and(T,U).                  objects at both step T and step U
+  or(T,U).                   objects at step T or step U
+  count(T).                  number of objects at step T
+  exist(T).                  yes if step T holds an object, else no
+  query_A(T).                the value of attribute A of the single object at step T
+  equal_A(T,U).              yes if the attribute values at steps T and U are equal
+  equal_integer(T,U).        yes if the numbers at steps T and U are equal
+  less_than(T,U).            yes if the number at step T is less than the number at step U
+  greater_than(T,U).         yes if the number at step T is greater than the number at step U
+  boolean_negation(T).       the opposite of the yes/no at step T
+  end(T).                    the answer is the value at step T
+
+Rules:
+- Vocabulary: big = large; tiny = small; shiny or metallic = metal; matte = rubber; ball = sphere; block = cube.
+- Use unique(T) before relate_D, same_A and query_A, whenever the question refers to "the" object.
+- Questions that describe a chain: start from the innermost reference object and work outwards.
+  "the X left of the Y" means: find Y, unique, relate_left, then filter X.
+  "the X that is the same A as the Y" is one chain: find Y, unique, same_A, then filter X.
+- "other" and "another" need no extra operation: same_A and relate_D already exclude the reference object.
+- Two descriptions need two chains. Start the second with scene(T), where T is the step the first chain ended on.
+  Combine them with a two-step operation: the first argument is the end of the second chain, the second argument
+  is the end of the first chain, and the operation number is therefore the end of the second chain.
+- less_than and greater_than compare their first argument with their second. In "fewer A than B", compute B first
+  and A second, then write less_than(end of A, end of B). Likewise for "more A than B" with greater_than.
+- Every step number is used by exactly one operation. end(T) must point at a number, a yes/no, or an attribute value.
+- Put a short % comment above each operation.
+
+If these operations truly cannot express the question, write plain rules instead of operations, using
+object(X), has_size(X,V), has_color(X,V), has_material(X,V), has_shape(X,V), left_of(X,Y), right_of(X,Y),
+in_front_of(X,Y), behind_of(X,Y) and deriving ans(V). Do not define those predicates, and do not use end/1 then.
+
+Return the program inside <asp></asp> tags and nothing else.
+
+Question: Are there any other things that have the same size as the brown shiny sphere?
+<asp>
+% Start from all objects.
+scene(0).
+% Keep the brown metal sphere.
+filter_brown(1).
+filter_metal(2).
+filter_sphere(3).
+% There is exactly one such object.
+unique(4).
+% Other objects with its size.
+same_size(5).
+% Is there at least one?
+exist(6).
+% The answer is that yes or no.
+end(7).
+</asp>
+
+Question: How many blocks are red metal things or big green metal things?
+<asp>
+% First description: red metal things.
+scene(0).
+filter_red(1).
+filter_metal(2).
+% Second description: big green metal things.
+scene(3).
+filter_large(4).
+filter_green(5).
+filter_metal(6).
+% Either description; step 7 ends the second, step 3 ends the first.
+or(7,3).
+% Only the blocks.
+filter_cube(8).
+% How many are left?
+count(9).
+end(10).
+</asp>
+
+Question: There is a ball that is right of the large matte thing in front of the large cube; what color is it?
+<asp>
+% The innermost object: the large cube.
+scene(0).
+filter_large(1).
+filter_cube(2).
+unique(3).
+% The large matte thing in front of it.
+relate_front(4).
+filter_large(5).
+filter_rubber(6).
+unique(7).
+% The ball to the right of that.
+relate_right(8).
+filter_sphere(9).
+unique(10).
+% Its color is the answer.
+query_color(11).
+end(12).
+</asp>
+
+Question: There is a large cube that is the same material as the large sphere; what color is it?
+<asp>
+% The reference object comes first: the large sphere.
+scene(0).
+filter_large(1).
+filter_sphere(2).
+unique(3).
+% Other objects with its material; this needs no query_material.
+same_material(4).
+% Among those, the large cube.
+filter_large(5).
+filter_cube(6).
+unique(7).
+% Its color is the answer.
+query_color(8).
+end(9).
+</asp>
+
+Question: How big is the thing that is on the right side of the purple object and left of the yellow matte sphere?
+<asp>
+% Things left of the yellow matte sphere.
+scene(0).
+filter_yellow(1).
+filter_rubber(2).
+filter_sphere(3).
+unique(4).
+relate_left(5).
+% Things right of the purple object.
+scene(6).
+filter_purple(7).
+unique(8).
+relate_right(9).
+% Things satisfying both; step 10 ends the second chain, step 6 ends the first.
+and(10,6).
+unique(11).
+% Its size is the answer.
+query_size(12).
+end(13).
+</asp>
+
+Question: Is the small gray object made of the same material as the big cube?
+<asp>
+% Material of the small gray object.
+scene(0).
+filter_small(1).
+filter_gray(2).
+unique(3).
+query_material(4).
+% Material of the big cube.
+scene(5).
+filter_large(6).
+filter_cube(7).
+unique(8).
+query_material(9).
+% Compare; step 10 holds the second material, step 5 the first.
+equal_material(10,5).
+end(11).
+</asp>
+
+Question: Are there fewer small cubes than blue matte balls?
+<asp>
+% The right-hand side comes first: count blue matte balls.
+scene(0).
+filter_blue(1).
+filter_rubber(2).
+filter_sphere(3).
+count(4).
+% Then the left-hand side: count small cubes.
+scene(5).
+filter_small(6).
+filter_cube(7).
+count(8).
+% Is the number at step 9 (small cubes) less than the number at step 5 (balls)?
+less_than(9,5).
+end(10).
+</asp>
+
+Question: Are there more big green things than large purple shiny cubes?
+<asp>
+% The right-hand side comes first: count large purple metal cubes.
+scene(0).
+filter_large(1).
+filter_purple(2).
+filter_metal(3).
+filter_cube(4).
+count(5).
+% Then the left-hand side: count big green things.
+scene(6).
+filter_large(7).
+filter_green(8).
+count(9).
+% Is the number at step 10 (green things) greater than the number at step 6 (cubes)?
+greater_than(10,6).
+end(11).
+</asp>
+
+Question: Are there an equal number of green things that are to the right of the small purple metal object and big brown things?
+<asp>
+% Green things right of the small purple metal object.
+scene(0).
+filter_small(1).
+filter_purple(2).
+filter_metal(3).
+unique(4).
+relate_right(5).
+filter_green(6).
+count(7).
+% Big brown things.
+scene(8).
+filter_large(9).
+filter_brown(10).
+count(11).
+% Compare the two numbers.
+equal_integer(12,8).
+end(13).
+</asp>
+
+Question: Are all the cylinders blue?
+<asp>
+% Count the cylinders.
+scene(0).
+filter_cylinder(1).
+count(2).
+% Count the blue cylinders.
+scene(3).
+filter_cylinder(4).
+filter_blue(5).
+count(6).
+% All are blue exactly when the two numbers are equal.
+equal_integer(7,3).
+end(8).
+</asp>
+
+Question: Does the large cube have a different color from the small sphere?
+<asp>
+% Color of the large cube.
+scene(0).
+filter_large(1).
+filter_cube(2).
+unique(3).
+query_color(4).
+% Color of the small sphere.
+scene(5).
+filter_small(6).
+filter_sphere(7).
+unique(8).
+query_color(9).
+% Are the colors equal?
+equal_color(10,5).
+% "Different" is the opposite.
+boolean_negation(11).
+end(12).
+</asp>
+
+Question: {query}
